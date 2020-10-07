@@ -1,0 +1,115 @@
+<html>
+  <head>
+    <title>Twilio Video Test</title>
+    <!-- <script src="https://cdn.jsdelivr.net/gh/alpinejs/alpine@v2.7.0/dist/alpine.min.js" defer></script> -->
+  </head>
+  <body>
+    <!-- <div class="main" x-data="app()"> -->
+      <!-- Room -->
+      <!-- <div id="room">
+        <div id="participants"></div>
+        <div id="active-participant">
+          <div>
+            <video autoplay playsinline muted></video>
+          </div>
+        </div>
+      </div> -->
+
+      <!-- Join a room -->
+      <!--<div id="join-room">
+        <h5>Video Chat</h5>
+        <div>
+          <label id="room-name-label" for="room-name">Room Name</label>
+          <input id="room-name" x-model="roomName" />
+        </div>
+        <div class="form-group">
+          <label id="user-name-label" for="user-name">User Name</label>
+          <input id="user-name" class="form-control" type="text" x-model="username" />
+        </div>
+        <div class="alert alert-warning" role="alert"></div>
+        <div>
+          <!-- <button type="button" class="btn btn-dark">Change Microphone and Camera</button> -->
+          <!--<button type="button" class="btn btn-primary" @click="connectToRoom">Join</button>
+        </div>
+      </div>
+
+    </div> -->
+
+    <script src="//media.twiliocdn.com/sdk/js/video/releases/2.7.2/twilio-video.min.js"></script>
+  </body>
+</html>
+
+<script>
+  const Video = Twilio.Video;
+
+  const username = generateId();
+  const room = 'newTest';
+
+  init(username, room)
+    .then(() => { console.log('Started') })
+    .catch((error) => { console.error(error) })
+
+  async function init(username, room) {
+    const response = await fetch(`/token?identity=${username}&roomName=${room}`);
+    const token = await response.text();
+
+    Video.connect(token, { name: 'test' }).then(room => {
+      console.log('Connected to Room "%s"', room.name);
+
+      room.participants.forEach(participantConnected);
+      room.on('participantConnected', participantConnected);
+
+      room.on('participantDisconnected', participantDisconnected);
+      room.once('disconnected', error => room.participants.forEach(participantDisconnected));
+    });
+  }
+
+  function participantConnected(participant) {
+    console.log('Participant "%s" connected', participant.identity);
+
+    const div = document.createElement('div');
+    div.id = participant.sid;
+    div.innerText = participant.identity;
+
+    participant.on('trackSubscribed', track => trackSubscribed(div, track));
+    participant.on('trackUnsubscribed', trackUnsubscribed);
+
+    participant.tracks.forEach(publication => {
+      if (publication.isSubscribed) {
+        trackSubscribed(div, publication.track);
+      }
+    });
+
+    document.body.appendChild(div);
+  }
+
+  function participantDisconnected(participant) {
+    console.log('Participant "%s" disconnected', participant.identity);
+    document.getElementById(participant.sid).remove();
+  }
+
+  function trackSubscribed(div, track) {
+    div.appendChild(track.attach());
+  }
+
+  function trackUnsubscribed(track) {
+    track.detach().forEach(element => element.remove());
+  }
+
+  function generateId() {
+    return '_' + Math.random().toString(36).substr(2, 9);
+  };
+
+
+//  function app() {
+
+//    return {
+//        username: '',
+//        roomName: '',
+//        connectToRoom() {
+//          console.log('clicked', this.username)
+//        }
+//    }
+//  }
+
+</script>
