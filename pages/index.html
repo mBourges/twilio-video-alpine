@@ -136,7 +136,7 @@
           room.participants.forEach(this.participantConnected);
           room.on('participantConnected', this.participantConnected);
           room.on('participantDisconnected', this.participantDisconnected);
-          room.once('disconnected', error => this.participants.forEach(participantDisconnected));
+          room.once('disconnected', error => this.participants.forEach(this.participantDisconnected));
         });
       },
       participantConnected(participant) {
