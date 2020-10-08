@@ -4,6 +4,7 @@
     <!-- <script src="https://cdn.jsdelivr.net/gh/alpinejs/alpine@v2.7.0/dist/alpine.min.js" defer></script> -->
   </head>
   <body>
+    <div id="app"></div>
     <!-- <div class="main" x-data="app()"> -->
       <!-- Room -->
       <!-- <div id="room">
@@ -36,71 +37,147 @@
     </div> -->
 
     <script src="//media.twiliocdn.com/sdk/js/video/releases/2.7.2/twilio-video.min.js"></script>
+    <script src="https://unpkg.com/vue@next"></script>
   </body>
 </html>
 
-<script>
+<script type="application/javascript">
   const Video = Twilio.Video;
 
-  const username = generateId();
-  const room = 'newTest';
-
-  init(username, room)
-    .then(() => { console.log('Started') })
-    .catch((error) => { console.error(error) })
-
-  async function init(username, room) {
-    const response = await fetch(`/token?identity=${username}&roomName=${room}`);
-    const token = await response.text();
-
-    Video.connect(token, { name: 'test' }).then(room => {
-      console.log('Connected to Room "%s"', room.name);
-
-      room.participants.forEach(participantConnected);
-      room.on('participantConnected', participantConnected);
-
-      room.on('participantDisconnected', participantDisconnected);
-      room.once('disconnected', error => room.participants.forEach(participantDisconnected));
-    });
-  }
-
-  function participantConnected(participant) {
-    console.log('Participant "%s" connected', participant.identity);
-
-    const div = document.createElement('div');
-    div.id = participant.sid;
-    div.innerText = participant.identity;
-
-    participant.on('trackSubscribed', track => trackSubscribed(div, track));
-    participant.on('trackUnsubscribed', trackUnsubscribed);
-
-    participant.tracks.forEach(publication => {
-      if (publication.isSubscribed) {
-        trackSubscribed(div, publication.track);
+  const joinRoomForm = {
+    props: ['isHidden'],
+    data() {
+      return { username: '', roomName: '' };
+    },
+    methods:{
+      joinRoom() {
+        const { username, roomName } = this;
+        this.$emit('join-room', { username, roomName });
       }
-    });
-
-    document.body.appendChild(div);
-  }
-
-  function participantDisconnected(participant) {
-    console.log('Participant "%s" disconnected', participant.identity);
-    document.getElementById(participant.sid).remove();
-  }
-
-  function trackSubscribed(div, track) {
-    div.appendChild(track.attach());
-  }
-
-  function trackUnsubscribed(track) {
-    track.detach().forEach(element => element.remove());
-  }
-
-  function generateId() {
-    return '_' + Math.random().toString(36).substr(2, 9);
+    },
+    template: `<div v-if="!isHidden">
+      Join Room Form {{ isHidden ? 'true': 'false' }}
+      <input v-model="username" type="text" />
+      <input v-model="roomName" type="text" />
+      <button type="button" @click="joinRoom">join</button>
+    </div>`
   };
 
+  const Participant = {
+    props: ['participant'],
+    mounted() {
+      this.participant.on('trackSubscribed', this.trackSubscribed);
+      this.participant.on('trackUnsubscribed', this.trackUnsubscribed);
 
+      this.participant.tracks.forEach(publication => {
+        if (publication.isSubscribed) {
+          this.trackSubscribed(publication.track);
+        }
+      });
+    },
+    methods: {
+      trackSubscribed(div, track) {
+        const videoElmt = this.$refs.video;
+        track.attach(videoElmt);
+      },
+      trackUnsubscribed(track) {
+        track.detach().forEach(element => element.remove());
+      }
+    },
+    template: `<div>
+      <div>{{ participant.identity }} - {{ participant.sid }}</div>
+      <video ref="video" autoplay playsinline muted />
+    </div>`
+  }
+
+  const Room = {
+    components: { participant: Participant },
+    props: ['room', 'participants'],
+    mounted() {
+      console.log(this.room);
+      console.log(this.particpants);
+    },
+    template: `<div>
+      <h2>{{ room.name }} - {{ room.sid }}</h2>
+      <participant v-for="(participant, id) in participants" :key="id" :participant="participant" />
+    </div>`
+  };
+
+  const Loader = {
+    template: '<div>Loading...</div>'
+  }
+
+  Vue.createApp({
+    components: {
+      'join-room-form': joinRoomForm,
+      'room': Room,
+      'loader': Loader
+    },
+  //  beforeDestroy() {},
+    data() {
+      return {
+        isJoinRoomFormHidden: false,
+        isLoading: false,
+        isRoomHidden: true,
+        room: {},
+        participants: {},
+      };
+    },
+    methods: {
+      async joinRoom(username, room) {
+        const response = await fetch(`/token?identity=${username}&roomName=${room}`);
+        const token = await response.text();
+
+        Video.connect(token, { name: room }).then(room => {
+          console.log('Connected to Room "%s"', room.name);
+
+          this.room = room;
+
+          room.participants.forEach(this.participantConnected);
+          room.on('participantConnected', this.participantConnected);
+          room.on('participantDisconnected', this.participantDisconnected);
+          room.once('disconnected', error => this.participants.forEach(participantDisconnected));
+        });
+      },
+      participantConnected(participant) {
+        console.log('Participant "%s" connected', participant.identity);
+        this.participants = {
+          ...this.participants,
+          [participant.sid]: participant
+        };
+      },
+      participantDisconnected(participant) {
+        const { [participant.sid]: participantToRemove, ...rest } = this.participants
+        this.participants = rest;
+      },
+      handleJoinRoom({ username, roomName}) {
+        console.log(username, roomName);
+        this.isLoading = true;
+
+        this.joinRoom(username, roomName)
+          .then(() => {
+            this.isLoading = false;
+            this.isRoomHidden = false;
+            this.isJoinRoomFormHidden = true;
+          })
+          .catch((error) => {
+            console.log('Room error', error);
+
+            this.isLoading = false;
+            this.isRoomHidden = true;
+            this.isJoinRoomFormHidden = false;
+          });
+      }
+    },
+    template: `<div>
+      <join-room-form :is-hidden="isJoinRoomFormHidden" @join-room="handleJoinRoom" />
+      <room v-if="!isRoomHidden" :room="room" :participants="participants" />
+      <loader v-if="isLoading" />
+    </div>`
+  })
+  .mount('#app')
+
+//  const Video = Twilio.Video;
 //  function app() {
 
 //    return {
@@ -108,8 +185,74 @@
 //        roomName: '',
 //        connectToRoom() {
 //          console.log('clicked', this.username)
-//        }
-//    }
+////        }
+////    }
 //  }
-
+//
+//
+//
+//
+//
+//
+//  const username = generateId();
+//  const room = 'newTest';
+//
+//  init(username, room)
+//    .then(() => { console.log('Started') })
+//    .catch((error) => { console.error(error) })
+//
+//  async function init(username, room) {
+//    const response = await fetch(`/token?identity=${username}&roomName=${room}`);
+//    const token = await response.text();
+//
+//    Video.connect(token, { name: 'test' }).then(room => {
+//      console.log('Connected to Room "%s"', room.name);
+//
+//      room.participants.forEach(participantConnected);
+//      room.on('participantConnected', participantConnected);
+//
+//      room.on('participantDisconnected', participantDisconnected);
+//      room.once('disconnected', error => room.participants.forEach(participantDisconnected));
+//    });
+//  }
+//
+//  function participantConnected(participant) {
+//    console.log('Participant "%s" connected', participant.identity);
+//
+//    const div = document.createElement('div');
+//    div.id = participant.sid;
+//    div.innerText = participant.identity;
+//
+//    participant.on('trackSubscribed', track => trackSubscribed(div, track));
+//    participant.on('trackUnsubscribed', trackUnsubscribed);
+//
+//    participant.tracks.forEach(publication => {
+//      if (publication.isSubscribed) {
+//        trackSubscribed(div, publication.track);
+//      }
+//    });
+//
+//    document.body.appendChild(div);
+//  }
+//
+//  function participantDisconnected(participant) {
+//    console.log('Participant "%s" disconnected', participant.identity);
+//    document.getElementById(participant.sid).remove();
+//  }
+//
+//  function trackSubscribed(div, track) {
+//    div.appendChild(track.attach());
+//  }
+//
+//  function trackUnsubscribed(track) {
+//    track.detach().forEach(element => element.remove());
+//  }
+//
+//  function generateId() {
+//    return '_' + Math.random().toString(36).substr(2, 9);
+//  };
+//
+//
+//
+//
 </script>
